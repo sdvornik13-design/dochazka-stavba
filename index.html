@@ -950,6 +950,17 @@ function renderQr(){
 }
 
 /* ---------- Init ---------- */
+function mapRows(rows){
+  return rows.map(r=>{
+    const d = new Date(r.timestamp);
+    return {
+      id: r.id, site: r.site, company: r.company, count: r.count,
+      date: isNaN(d) ? "" : d.toISOString().slice(0,10),
+      time: isNaN(d) ? "" : d.toTimeString().slice(0,5)
+    };
+  }).sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time));
+}
+
 async function init(){
   try{
     const langPref = localStorage.getItem("lang-pref");
@@ -957,6 +968,19 @@ async function init(){
   }catch(e){}
   updateLangButtons();
   if(!sites.includes(selectedSite)) selectedSite = sites[0];
+
+  // Instant paint from last-known local data (if any), so the app doesn't
+  // sit empty while waiting on the network round trip to Apps Script.
+  try{
+    const cachedRows = localStorage.getItem("cache-rows");
+    const cachedCompanies = localStorage.getItem("cache-companies");
+    if(cachedRows){ allEntries = mapRows(JSON.parse(cachedRows)); }
+    if(cachedCompanies){ const c = JSON.parse(cachedCompanies); if(Array.isArray(c) && c.length) companies = c; }
+  }catch(e){}
+  applyI18n();
+  updateSaveState();
+
+  // Then quietly fetch fresh data in the background and re-render.
   if(SHEETS_URL && SHEETS_URL.indexOf("PASTE_YOUR")!==0){
     try{
       const res = await fetch(SHEETS_URL, {
@@ -966,21 +990,19 @@ async function init(){
       });
       const data = await res.json();
       const rows = (data && data.rows) ? data.rows : [];
-      allEntries = rows.map(r=>{
-        const d = new Date(r.timestamp);
-        return {
-          id: r.id, site: r.site, company: r.company, count: r.count,
-          date: isNaN(d) ? "" : d.toISOString().slice(0,10),
-          time: isNaN(d) ? "" : d.toTimeString().slice(0,5)
-        };
-      }).sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time));
+      allEntries = mapRows(rows);
       if(data && Array.isArray(data.companies) && data.companies.length){
         companies = data.companies;
       }
-    }catch(e){ console.error("Init load failed", e); allEntries = []; }
+      try{
+        localStorage.setItem("cache-rows", JSON.stringify(rows));
+        localStorage.setItem("cache-companies", JSON.stringify(companies));
+      }catch(e){}
+      renderSiteSelect(); renderCompanyChips(); renderTodayList();
+      renderOverviewFilters(); renderOverview();
+      updateSaveState();
+    }catch(e){ console.error("Init load failed", e); }
   }
-  applyI18n();
-  updateSaveState();
 }
 init();
 </script>
