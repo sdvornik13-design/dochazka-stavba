@@ -709,7 +709,11 @@ async function sheetsDelete(id){
   return res.json();
 }
 async function sheetsList(){
-  const res = await fetch(SHEETS_URL + "?action=list");
+  const res = await fetch(SHEETS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action:"list" })
+  });
   return res.json();
 }
 
