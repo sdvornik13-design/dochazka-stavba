@@ -500,7 +500,8 @@ const I18N = {
     emptyToday:"Zatím nic nezapsáno", emptyOverview:"Zatím žádná data",
     qrHint:"Vytiskněte a vyvěste u vstupu na stavbu. Mistr naskenuje, vybere firmu a zapíše počet lidí.",
     person:"osoba", people2_4:"lidé", people5:"lidí", total:"celkem",
-    newSite:"+ Nová stavba", newSitePrompt:"Název nové stavby:"
+    newSite:"+ Nová stavba", newSitePrompt:"Název nové stavby:",
+    confirmDelete:"Opravdu smazat tento záznam?"
   },
   en:{
     tabCheckin:"Check-in", tabOverview:"Overview", tabQr:"QR code",
@@ -512,7 +513,8 @@ const I18N = {
     emptyToday:"Nothing logged yet", emptyOverview:"No data yet",
     qrHint:"Print and post at the site entrance. The foreman scans it, picks the company, and logs the headcount.",
     person:"person", people2_4:"people", people5:"people", total:"total",
-    newSite:"+ New site", newSitePrompt:"New site name:"
+    newSite:"+ New site", newSitePrompt:"New site name:",
+    confirmDelete:"Delete this entry?"
   },
   ua:{
     tabCheckin:"Реєстрація", tabOverview:"Огляд", tabQr:"QR-код",
@@ -524,7 +526,8 @@ const I18N = {
     emptyToday:"Поки що немає записів", emptyOverview:"Поки що немає даних",
     qrHint:"Роздрукуйте та розмістіть на вході на будмайданчик. Майстер сканує, обирає компанію та вказує кількість людей.",
     person:"особа", people2_4:"особи", people5:"осіб", total:"всього",
-    newSite:"+ Новий об'єкт", newSitePrompt:"Назва нового об'єкта:"
+    newSite:"+ Новий об'єкт", newSitePrompt:"Назва нового об'єкта:",
+    confirmDelete:"Справді видалити цей запис?"
   }
 };
 
@@ -613,7 +616,6 @@ document.getElementById("siteSelect").addEventListener("change",(e)=>{
     if(name && name.trim()){
       sites.push(name.trim());
       selectedSite = name.trim();
-      persistSites();
     }
     renderSiteSelect();
   } else {
@@ -635,17 +637,17 @@ function renderCompanyChips(){
     wrap.appendChild(chip);
   });
 }
-document.getElementById("addCompanyBtn").addEventListener("click", ()=>{
+document.getElementById("addCompanyBtn").addEventListener("click", async ()=>{
   const input = document.getElementById("newCompanyInput");
   const name = input.value.trim();
   if(!name) return;
   if(!companies.includes(name)) companies.push(name);
   selectedCompany = name;
   input.value = "";
-  persistCompanies();
   renderCompanyChips();
   updateSaveState();
   renderOverviewFilters();
+  await persistCompanies(name);
 });
 
 /* ---------- Stepper ---------- */
@@ -746,13 +748,33 @@ async function loadAllEntries(){
   }
 }
 
-/* Seznamy staveb a firem se řeší přímo v kódu appky (proměnné sites/companies
-   výše) — nejsou sdílené přes síť, takže je není třeba synchronizovat. Nové
-   firmy přidané tlačítkem "Přidat" platí jen pro aktuální relaci v prohlížeči. */
-async function persistSites(){ /* no-op: sites are edited directly in the code */ }
-async function persistCompanies(){ /* no-op: companies are edited directly in the code */ }
+/* Stavby se řeší přímo v kódu appky (proměnná sites výše) — je jen jedna,
+   není třeba ji synchronizovat. Firmy jsou naopak sdílené přes Google
+   Sheets, aby nově přidaná firma byla vidět pro všechny, na jakémkoli
+   zařízení. */
+async function persistCompanies(name){
+  try{
+    await fetch(SHEETS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action:"addCompany", name:name })
+    });
+  }catch(e){ console.error("Persist company failed", e); }
+}
 async function loadConfig(){
   if(!sites.includes(selectedSite)) selectedSite = sites[0];
+  if(!SHEETS_URL || SHEETS_URL.indexOf("PASTE_YOUR")===0) return;
+  try{
+    const res = await fetch(SHEETS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action:"listCompanies" })
+    });
+    const data = await res.json();
+    if(data && Array.isArray(data.companies) && data.companies.length){
+      companies = data.companies;
+    }
+  }catch(e){ console.error("Load companies failed", e); }
 }
 
 /* ---------- Today list (check-in tab) ---------- */
@@ -844,6 +866,8 @@ function renderOverview(){
 }
 
 async function deleteEntry(id){
+  const ok = confirm(t("confirmDelete"));
+  if(!ok) return;
   try{
     await sheetsDelete(id);
     await loadAllEntries();
