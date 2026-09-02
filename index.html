@@ -501,7 +501,8 @@ const I18N = {
     qrHint:"Vytiskněte a vyvěste u vstupu na stavbu. Mistr naskenuje, vybere firmu a zapíše počet lidí.",
     person:"osoba", people2_4:"lidé", people5:"lidí", total:"celkem",
     newSite:"+ Nová stavba", newSitePrompt:"Název nové stavby:",
-    confirmDelete:"Opravdu smazat tento záznam?"
+    confirmDelete:"Opravdu smazat tento záznam?",
+    confirmDeleteCompany:"Odebrat firmu \"{name}\" ze seznamu?"
   },
   en:{
     tabCheckin:"Check-in", tabOverview:"Overview", tabQr:"QR code",
@@ -514,7 +515,8 @@ const I18N = {
     qrHint:"Print and post at the site entrance. The foreman scans it, picks the company, and logs the headcount.",
     person:"person", people2_4:"people", people5:"people", total:"total",
     newSite:"+ New site", newSitePrompt:"New site name:",
-    confirmDelete:"Delete this entry?"
+    confirmDelete:"Delete this entry?",
+    confirmDeleteCompany:"Remove company \"{name}\" from the list?"
   },
   ua:{
     tabCheckin:"Реєстрація", tabOverview:"Огляд", tabQr:"QR-код",
@@ -527,7 +529,8 @@ const I18N = {
     qrHint:"Роздрукуйте та розмістіть на вході на будмайданчик. Майстер сканує, обирає компанію та вказує кількість людей.",
     person:"особа", people2_4:"особи", people5:"осіб", total:"всього",
     newSite:"+ Новий об'єкт", newSitePrompt:"Назва нового об'єкта:",
-    confirmDelete:"Справді видалити цей запис?"
+    confirmDelete:"Справді видалити цей запис?",
+    confirmDeleteCompany:"Видалити компанію \"{name}\" зі списку?"
   }
 };
 
@@ -632,10 +635,45 @@ function renderCompanyChips(){
   companies.forEach(c=>{
     const chip = document.createElement("div");
     chip.className = "chip" + (c===selectedCompany ? " active" : "");
-    chip.textContent = c;
-    chip.addEventListener("click", ()=>{ selectedCompany = c; renderCompanyChips(); updateSaveState(); });
+    chip.style.display = "inline-flex";
+    chip.style.alignItems = "center";
+    chip.style.gap = "6px";
+
+    const label = document.createElement("span");
+    label.textContent = c;
+    label.addEventListener("click", ()=>{ selectedCompany = c; renderCompanyChips(); updateSaveState(); });
+    chip.appendChild(label);
+
+    const remove = document.createElement("span");
+    remove.textContent = "×";
+    remove.style.opacity = "0.6";
+    remove.style.fontWeight = "800";
+    remove.style.cursor = "pointer";
+    remove.style.padding = "0 2px";
+    remove.addEventListener("click", async (ev)=>{
+      ev.stopPropagation();
+      const ok = confirm(t("confirmDeleteCompany").replace("{name}", c));
+      if(!ok) return;
+      await deleteCompany(c);
+    });
+    chip.appendChild(remove);
+
     wrap.appendChild(chip);
   });
+}
+async function deleteCompany(name){
+  try{
+    await fetch(SHEETS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action:"deleteCompany", name:name })
+    });
+    companies = companies.filter(c=>c!==name);
+    if(selectedCompany===name) selectedCompany = null;
+    renderCompanyChips();
+    updateSaveState();
+    renderOverviewFilters();
+  }catch(e){ console.error("Delete company failed", e); }
 }
 document.getElementById("addCompanyBtn").addEventListener("click", async ()=>{
   const input = document.getElementById("newCompanyInput");
