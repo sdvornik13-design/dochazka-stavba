@@ -659,14 +659,15 @@ function updateSaveState(){
 /* ---------- Save entry ---------- */
 document.getElementById("saveBtn").addEventListener("click", async ()=>{
   if(!selectedCompany || count<=0) return;
+  const btn = document.getElementById("saveBtn");
+  if(btn.disabled) return; // guard against double-tap causing duplicate saves
+  btn.disabled = true;
   const now = new Date();
   const entry = {
-    id: "e" + now.getTime() + Math.random().toString(36).slice(2,7),
     site: selectedSite,
     company: selectedCompany,
     count: count,
-    date: now.toISOString().slice(0,10),
-    time: now.toTimeString().slice(0,5)
+    timestamp: now.getTime()
   };
   try{
     await sheetsAdd(entry);
@@ -681,6 +682,8 @@ document.getElementById("saveBtn").addEventListener("click", async ()=>{
     console.error("Save failed", err);
     const toast = document.getElementById("saveToast");
     toast.textContent = "⚠"; toast.style.color = "var(--bad)";
+    btn.disabled = false;
+    updateSaveState();
   }
 });
 
@@ -693,7 +696,7 @@ async function sheetsAdd(entry){
   const res = await fetch(SHEETS_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ action:"add", site:entry.site, company:entry.company, count:entry.count, date:entry.date, time:entry.time })
+    body: JSON.stringify({ action:"add", site:entry.site, company:entry.company, count:entry.count, timestamp:entry.timestamp })
   });
   return res.json();
 }
@@ -719,7 +722,20 @@ async function loadAllEntries(){
   try{
     const data = await sheetsList();
     const rows = (data && data.rows) ? data.rows : [];
-    allEntries = rows.sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time));
+    /* The sheet only stores a numeric timestamp (to avoid Google Sheets
+       auto-converting date-like text into its own Date type). Derive the
+       display date/time strings here on the client instead. */
+    allEntries = rows.map(r=>{
+      const d = new Date(r.timestamp);
+      return {
+        id: r.id,
+        site: r.site,
+        company: r.company,
+        count: r.count,
+        date: isNaN(d) ? "" : d.toISOString().slice(0,10),
+        time: isNaN(d) ? "" : d.toTimeString().slice(0,5)
+      };
+    }).sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time));
   }catch(e){
     console.error("Load failed", e);
     allEntries = [];
