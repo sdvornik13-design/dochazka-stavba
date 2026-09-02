@@ -662,18 +662,24 @@ function renderCompanyChips(){
   });
 }
 async function deleteCompany(name){
+  const backup = companies;
+  companies = companies.filter(c=>c!==name);
+  if(selectedCompany===name) selectedCompany = null;
+  renderCompanyChips();
+  updateSaveState();
+  renderOverviewFilters();
   try{
     await fetch(SHEETS_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ action:"deleteCompany", name:name })
     });
-    companies = companies.filter(c=>c!==name);
-    if(selectedCompany===name) selectedCompany = null;
+  }catch(e){
+    console.error("Delete company failed", e);
+    companies = backup;
     renderCompanyChips();
-    updateSaveState();
     renderOverviewFilters();
-  }catch(e){ console.error("Delete company failed", e); }
+  }
 }
 document.getElementById("addCompanyBtn").addEventListener("click", async ()=>{
   const input = document.getElementById("newCompanyInput");
@@ -702,28 +708,35 @@ document.getElementById("saveBtn").addEventListener("click", async ()=>{
   const btn = document.getElementById("saveBtn");
   if(btn.disabled) return; // guard against double-tap causing duplicate saves
   btn.disabled = true;
+
   const now = new Date();
-  const entry = {
-    site: selectedSite,
-    company: selectedCompany,
-    count: count,
-    timestamp: now.getTime()
-  };
+  const timestamp = now.getTime();
+  const tempId = "temp-" + timestamp + "-" + Math.random().toString(36).slice(2,7);
+  const site = selectedSite, company = selectedCompany, savedCount = count;
+
+  // Optimistic UI update: show the entry immediately, don't wait on the network.
+  allEntries.unshift({
+    id: tempId, site: site, company: company, count: savedCount,
+    date: now.toISOString().slice(0,10), time: now.toTimeString().slice(0,5)
+  });
+  renderTodayList(); renderOverview();
+
+  const toast = document.getElementById("saveToast");
+  toast.textContent = t("savedToast") + " ✓";
+  setTimeout(()=>{ toast.textContent=""; }, 2000);
+
+  count = 0; selectedCompany = null;
+  updateCount(); renderCompanyChips(); updateSaveState();
+  btn.disabled = false;
+
   try{
-    await sheetsAdd(entry);
-    const toast = document.getElementById("saveToast");
-    toast.textContent = t("savedToast") + " ✓";
-    setTimeout(()=>{ toast.textContent=""; }, 2000);
-    count = 0; selectedCompany = null;
-    updateCount(); renderCompanyChips(); updateSaveState();
-    await loadAllEntries();
-    renderTodayList(); renderOverview();
+    await sheetsAdd({ site: site, company: company, count: savedCount, timestamp: timestamp });
   }catch(err){
     console.error("Save failed", err);
-    const toast = document.getElementById("saveToast");
+    // Roll back the optimistic entry since it never actually saved.
+    allEntries = allEntries.filter(e=>e.id!==tempId);
+    renderTodayList(); renderOverview();
     toast.textContent = "⚠"; toast.style.color = "var(--bad)";
-    btn.disabled = false;
-    updateSaveState();
   }
 });
 
@@ -906,11 +919,16 @@ function renderOverview(){
 async function deleteEntry(id){
   const ok = confirm(t("confirmDelete"));
   if(!ok) return;
+  const backup = allEntries;
+  allEntries = allEntries.filter(e=>e.id!==id);
+  renderTodayList(); renderOverview();
   try{
     await sheetsDelete(id);
-    await loadAllEntries();
+  }catch(e){
+    console.error("Delete failed", e);
+    allEntries = backup;
     renderTodayList(); renderOverview();
-  }catch(e){ console.error("Delete failed", e); }
+  }
 }
 window.deleteEntry = deleteEntry;
 
@@ -938,8 +956,29 @@ async function init(){
     if(langPref && I18N[langPref]) lang = langPref;
   }catch(e){}
   updateLangButtons();
-  await loadConfig();
-  await loadAllEntries();
+  if(!sites.includes(selectedSite)) selectedSite = sites[0];
+  if(SHEETS_URL && SHEETS_URL.indexOf("PASTE_YOUR")!==0){
+    try{
+      const res = await fetch(SHEETS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action:"init" })
+      });
+      const data = await res.json();
+      const rows = (data && data.rows) ? data.rows : [];
+      allEntries = rows.map(r=>{
+        const d = new Date(r.timestamp);
+        return {
+          id: r.id, site: r.site, company: r.company, count: r.count,
+          date: isNaN(d) ? "" : d.toISOString().slice(0,10),
+          time: isNaN(d) ? "" : d.toTimeString().slice(0,5)
+        };
+      }).sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time));
+      if(data && Array.isArray(data.companies) && data.companies.length){
+        companies = data.companies;
+      }
+    }catch(e){ console.error("Init load failed", e); allEntries = []; }
+  }
   applyI18n();
   updateSaveState();
 }
