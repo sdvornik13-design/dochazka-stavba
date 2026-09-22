@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Docházka BD Jordánská III</title>
 <style>
   :root{
@@ -1008,7 +1011,32 @@ function mapRows(rows){
   }).sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time));
 }
 
+/* Detekce nové verze appky: zeptáme se serveru na aktuální stránku bez
+   použití mezipaměti (cache: no-store) a porovnáme datum poslední úpravy
+   souboru s tím, co jsme viděli minule. Pokud se liší, appku sami znovu
+   načteme s "cache-busting" adresou, aby se stáhla opravdu čerstvá verze
+   — hlavně důležité pro appky přidané na plochu telefonu, které si jinak
+   drží starou verzi velmi neochotně. */
+async function checkForUpdate(){
+  try{
+    const res = await fetch(window.location.pathname, { method: "HEAD", cache: "no-store" });
+    const tag = res.headers.get("Last-Modified") || res.headers.get("ETag");
+    if(!tag) return;
+    const stored = localStorage.getItem("app-version-tag");
+    if(stored && stored !== tag){
+      localStorage.setItem("app-version-tag", tag);
+      window.location.replace(window.location.pathname + "?_=" + Date.now());
+      return true; // signalizuje, že se appka právě znovu načítá
+    }
+    localStorage.setItem("app-version-tag", tag);
+  }catch(e){ console.warn("Update check failed", e); }
+  return false;
+}
+
 async function init(){
+  const reloading = await checkForUpdate();
+  if(reloading) return; // stránka se právě přenačítá na novou verzi, nic dalšího nedělej
+
   try{
     const langPref = localStorage.getItem("lang-pref");
     if(langPref && I18N[langPref]) lang = langPref;
