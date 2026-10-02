@@ -144,6 +144,7 @@
 </head>
 <body>
 <div class="wrap">
+  <div id="refreshPill" style="display:none; position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:999; background:var(--amber); color:#fff; font-size:12px; font-weight:700; padding:5px 14px; border-radius:999px; box-shadow:0 2px 8px rgba(0,0,0,0.3);">⟳ Aktualizuji…</div>
 
   <div class="logo-wrap">
     <div class="logo-card">
@@ -1033,6 +1034,39 @@ async function checkForUpdate(){
   return false;
 }
 
+let refreshInFlight = false;
+async function refreshData(showIndicator){
+  if(refreshInFlight) return; // zabrání souběžným/duplicitním stahováním
+  if(!SHEETS_URL || SHEETS_URL.indexOf("PASTE_YOUR")===0) return;
+  refreshInFlight = true;
+  const pill = document.getElementById("refreshPill");
+  if(showIndicator && pill) pill.style.display = "block";
+  try{
+    const res = await fetch(SHEETS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action:"init" })
+    });
+    const data = await res.json();
+    const rows = (data && data.rows) ? data.rows : [];
+    allEntries = mapRows(rows);
+    if(data && Array.isArray(data.companies) && data.companies.length){
+      companies = data.companies;
+    }
+    try{
+      localStorage.setItem("cache-rows", JSON.stringify(rows));
+      localStorage.setItem("cache-companies", JSON.stringify(companies));
+    }catch(e){}
+    renderSiteSelect(); renderCompanyChips(); renderTodayList();
+    renderOverviewFilters(); renderOverview();
+    updateSaveState();
+  }catch(e){ console.error("Refresh failed", e); }
+  finally{
+    refreshInFlight = false;
+    if(pill) pill.style.display = "none";
+  }
+}
+
 async function init(){
   const reloading = await checkForUpdate();
   if(reloading) return; // stránka se právě přenačítá na novou verzi, nic dalšího nedělej
@@ -1056,30 +1090,24 @@ async function init(){
   updateSaveState();
 
   // Then quietly fetch fresh data in the background and re-render.
-  if(SHEETS_URL && SHEETS_URL.indexOf("PASTE_YOUR")!==0){
-    try{
-      const res = await fetch(SHEETS_URL, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action:"init" })
-      });
-      const data = await res.json();
-      const rows = (data && data.rows) ? data.rows : [];
-      allEntries = mapRows(rows);
-      if(data && Array.isArray(data.companies) && data.companies.length){
-        companies = data.companies;
-      }
-      try{
-        localStorage.setItem("cache-rows", JSON.stringify(rows));
-        localStorage.setItem("cache-companies", JSON.stringify(companies));
-      }catch(e){}
-      renderSiteSelect(); renderCompanyChips(); renderTodayList();
-      renderOverviewFilters(); renderOverview();
-      updateSaveState();
-    }catch(e){ console.error("Init load failed", e); }
-  }
+  await refreshData();
 }
 init();
+
+/* Appky přidané na plochu telefonu se po přepnutí pryč a zpátky často jen
+   "proberou" ze zamrzlého stavu, aniž by se JavaScript spustil znovu od
+   začátku (init() se tedy nezavolá). Aby appka přesto vždy ukazovala
+   čerstvá data, obnovíme je i při těchto dvou událostech. */
+document.addEventListener("visibilitychange", ()=>{
+  if(document.visibilityState === "visible"){
+    checkForUpdate().then(reloading=>{ if(!reloading) refreshData(true); });
+  }
+});
+window.addEventListener("pageshow", (event)=>{
+  if(event.persisted){
+    checkForUpdate().then(reloading=>{ if(!reloading) refreshData(true); });
+  }
+});
 </script>
 </body>
 </html>
