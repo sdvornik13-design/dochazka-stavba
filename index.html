@@ -196,7 +196,8 @@
         </div>
       </div>
 
-      <button class="save-btn" id="saveBtn" data-i18n="saveBtn" disabled>Uložit</button>
+      <div id="editHint" style="display:none;color:var(--text-dim);font-size:13px;margin:10px 0 0;"></div>
+      <button class="save-btn" id="saveBtn" disabled>Uložit</button>
       <div class="save-toast" id="saveToast"></div>
     </div>
 
@@ -218,6 +219,7 @@
       <select class="filter" id="filterCompany"></select>
     </div>
     <div id="overviewList"></div>
+    <div style="text-align:center;margin:18px 0 6px;"><button id="adminBtn" style="background:none;border:none;color:var(--text-dim);font-size:12px;opacity:.7;cursor:pointer;padding:6px 10px;"></button></div>
   </section>
 
   <!-- QR TAB -->
@@ -519,7 +521,7 @@ const I18N = {
     labelWorkers:"Dělníci", labelTechnicians:"Technici",
     workersShort:"děl.", techniciansShort:"tech.",
     newCompanyPlaceholder:"Nová firma…", addBtn:"Přidat", saveBtn:"Uložit",
-    savedToast:"Uloženo", todayHeading:"Dnes zapsáno na této stavbě",
+    savedToast:"Uloženo", updateBtn:"Upravit dnešní zápis", editHint:"Tato firma je dnes už zapsaná – upravujete počet lidí.", updatedToast:"Upraveno", changeCompany:"Změnit firmu", changeTitle:"Vyberte správnou firmu", cancelBtn:"Zrušit", okBtn:"Změnit", duplicateMsg:"Tato firma je dnes už zapsaná. Upravte její zápis.", noOtherCompany:"Není na výběr žádná jiná firma.", adminBtn:"Admin", adminOff:"Vypnout admin režim", adminPinPrompt:"Zadejte admin PIN", adminWrong:"Nesprávný PIN", forbiddenMsg:"Mazat může jen admin.", todayHeading:"Dnes zapsáno na této stavbě",
     statToday:"lidí dnes", statCompanies:"firem dnes", statAvg:"7denní průměr",
     allSites:"Všechny stavby", allCompanies:"Všechny firmy",
     emptyToday:"Zatím nic nezapsáno", emptyOverview:"Zatím žádná data",
@@ -535,7 +537,7 @@ const I18N = {
     labelWorkers:"Workers", labelTechnicians:"Technicians",
     workersShort:"wrk.", techniciansShort:"tech.",
     newCompanyPlaceholder:"New company…", addBtn:"Add", saveBtn:"Save",
-    savedToast:"Saved", todayHeading:"Logged today on this site",
+    savedToast:"Saved", updateBtn:"Update today's entry", editHint:"This company is already logged today – you are editing the headcount.", updatedToast:"Updated", changeCompany:"Change company", changeTitle:"Choose the correct company", cancelBtn:"Cancel", okBtn:"Change", duplicateMsg:"This company is already logged today. Edit its entry instead.", noOtherCompany:"No other company available.", adminBtn:"Admin", adminOff:"Turn off admin mode", adminPinPrompt:"Enter admin PIN", adminWrong:"Wrong PIN", forbiddenMsg:"Only the admin can delete.", todayHeading:"Logged today on this site",
     statToday:"people today", statCompanies:"companies today", statAvg:"7-day average",
     allSites:"All sites", allCompanies:"All companies",
     emptyToday:"Nothing logged yet", emptyOverview:"No data yet",
@@ -551,7 +553,7 @@ const I18N = {
     labelWorkers:"Робітники", labelTechnicians:"Техніки",
     workersShort:"роб.", techniciansShort:"тех.",
     newCompanyPlaceholder:"Нова компанія…", addBtn:"Додати", saveBtn:"Зберегти",
-    savedToast:"Збережено", todayHeading:"Сьогодні внесено на цьому об'єкті",
+    savedToast:"Збережено", updateBtn:"Оновити сьогоднішній запис", editHint:"Ця компанія вже внесена сьогодні – ви змінюєте кількість людей.", updatedToast:"Оновлено", changeCompany:"Змінити компанію", changeTitle:"Виберіть правильну компанію", cancelBtn:"Скасувати", okBtn:"Змінити", duplicateMsg:"Ця компанія вже внесена сьогодні. Змініть її запис.", noOtherCompany:"Немає іншої компанії.", adminBtn:"Адмін", adminOff:"Вимкнути режим адміна", adminPinPrompt:"Введіть PIN адміна", adminWrong:"Невірний PIN", forbiddenMsg:"Видаляти може лише адмін.", todayHeading:"Сьогодні внесено на цьому об'єкті",
     statToday:"людей сьогодні", statCompanies:"компаній сьогодні", statAvg:"середнє за 7 днів",
     allSites:"Усі об'єкти", allCompanies:"Усі компанії",
     emptyToday:"Поки що немає записів", emptyOverview:"Поки що немає даних",
@@ -581,7 +583,8 @@ function applyI18n(){
   document.querySelectorAll("[data-i18n-placeholder]").forEach(el=>{
     el.placeholder = t(el.getAttribute("data-i18n-placeholder"));
   });
-  document.getElementById("saveBtn").textContent = t("saveBtn");
+  updateSaveState();
+  updateAdminBtn();
   renderSiteSelect();
   renderCompanyChips();
   renderTodayList();
@@ -658,6 +661,26 @@ document.getElementById("siteSelect").addEventListener("change",(e)=>{
   renderOverviewFilters();
 });
 
+/* ---------- Helpers ---------- */
+function ymd(d){
+  const p = n=>String(n).padStart(2,"0");
+  return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());
+}
+function todayEntryFor(company){
+  if(!company) return null;
+  const today = ymd(new Date());
+  const c = company.trim().toLowerCase();
+  return allEntries.find(e=>e.date===today && e.site===selectedSite && String(e.company).trim().toLowerCase()===c) || null;
+}
+function selectCompany(c){
+  selectedCompany = c;
+  const ex = todayEntryFor(c);
+  workersCount = ex ? ex.workers : 0;
+  techniciansCount = ex ? ex.technicians : 0;
+  renderCompanyChips();
+  updateCounts();
+}
+
 /* ---------- Company chips ---------- */
 function renderCompanyChips(){
   const wrap = document.getElementById("companyChips");
@@ -670,8 +693,8 @@ function renderCompanyChips(){
     chip.style.gap = "6px";
 
     const label = document.createElement("span");
-    label.textContent = c;
-    label.addEventListener("click", ()=>{ selectedCompany = c; renderCompanyChips(); updateSaveState(); });
+    label.textContent = (todayEntryFor(c) ? "✓ " : "") + c;
+    label.addEventListener("click", ()=>{ selectCompany(c); });
     chip.appendChild(label);
 
     const remove = document.createElement("span");
@@ -716,10 +739,8 @@ document.getElementById("addCompanyBtn").addEventListener("click", async ()=>{
   const name = input.value.trim();
   if(!name) return;
   if(!companies.includes(name)) companies.push(name);
-  selectedCompany = name;
   input.value = "";
-  renderCompanyChips();
-  updateSaveState();
+  selectCompany(name);
   renderOverviewFilters();
   await persistCompanies(name);
 });
@@ -736,46 +757,74 @@ function updateCounts(){
 }
 function updateSaveState(){
   document.getElementById("countsSection").style.display = selectedCompany ? "" : "none";
-  document.getElementById("saveBtn").disabled = !(selectedCompany && (workersCount>0 || techniciansCount>0));
+  const editing = !!todayEntryFor(selectedCompany);
+  const btn = document.getElementById("saveBtn");
+  btn.textContent = editing ? t("updateBtn") : t("saveBtn");
+  btn.disabled = !(selectedCompany && (editing || workersCount>0 || techniciansCount>0));
+  const hint = document.getElementById("editHint");
+  hint.textContent = editing ? t("editHint") : "";
+  hint.style.display = editing ? "" : "none";
 }
 
 /* ---------- Save entry ---------- */
 document.getElementById("saveBtn").addEventListener("click", async ()=>{
-  if(!selectedCompany || (workersCount<=0 && techniciansCount<=0)) return;
+  if(!selectedCompany) return;
+  const existing = todayEntryFor(selectedCompany);
+  if(!existing && workersCount<=0 && techniciansCount<=0) return;
   const btn = document.getElementById("saveBtn");
   if(btn.disabled) return; // guard against double-tap causing duplicate saves
   btn.disabled = true;
 
   const now = new Date();
   const timestamp = now.getTime();
-  const tempId = "temp-" + timestamp + "-" + Math.random().toString(36).slice(2,7);
   const site = selectedSite, company = selectedCompany;
   const savedWorkers = workersCount, savedTechnicians = techniciansCount;
   const savedCount = savedWorkers + savedTechnicians;
+  const toast = document.getElementById("saveToast");
 
-  // Optimistic UI update: show the entry immediately, don't wait on the network.
-  allEntries.unshift({
-    id: tempId, site: site, company: company,
-    workers: savedWorkers, technicians: savedTechnicians, count: savedCount,
-    date: now.toISOString().slice(0,10), time: now.toTimeString().slice(0,5)
-  });
+  // Optimistic UI update: show the change immediately, don't wait on the network.
+  let tempId = null, prev = null;
+  if(existing){
+    prev = { workers: existing.workers, technicians: existing.technicians, count: existing.count };
+    existing.workers = savedWorkers; existing.technicians = savedTechnicians; existing.count = savedCount;
+  } else {
+    tempId = "temp-" + timestamp + "-" + Math.random().toString(36).slice(2,7);
+    allEntries.unshift({
+      id: tempId, site: site, company: company,
+      workers: savedWorkers, technicians: savedTechnicians, count: savedCount,
+      date: ymd(now), time: now.toTimeString().slice(0,5)
+    });
+  }
   renderTodayList(); renderOverview();
 
-  const toast = document.getElementById("saveToast");
-  toast.textContent = t("savedToast") + " ✓";
+  toast.style.color = "";
+  toast.textContent = t(existing ? "updatedToast" : "savedToast") + " ✓";
   setTimeout(()=>{ toast.textContent=""; }, 2000);
 
   workersCount = 0; techniciansCount = 0; selectedCompany = null;
   updateCounts(); renderCompanyChips(); updateSaveState();
-  btn.disabled = false;
 
   try{
-    await sheetsAdd({ site: site, company: company, workers: savedWorkers, technicians: savedTechnicians, timestamp: timestamp });
+    let r;
+    if(existing && !String(existing.id).startsWith("temp-")){
+      r = await sheetsUpdate({ id: existing.id, workers: savedWorkers, technicians: savedTechnicians });
+    } else {
+      // new entry (or entry still being saved): the server also guards against duplicates per company and day
+      r = await sheetsAdd({ site: site, company: company, workers: savedWorkers, technicians: savedTechnicians, timestamp: timestamp });
+    }
+    if(r && r.error) throw new Error(r.error);
+    if(tempId && r && r.id){
+      const e = allEntries.find(x=>x.id===tempId);
+      if(e) e.id = r.id;
+    }
   }catch(err){
     console.error("Save failed", err);
-    // Roll back the optimistic entry since it never actually saved.
-    allEntries = allEntries.filter(e=>e.id!==tempId);
-    renderTodayList(); renderOverview();
+    if(existing && prev){
+      existing.workers = prev.workers; existing.technicians = prev.technicians; existing.count = prev.count;
+    } else if(tempId){
+      allEntries = allEntries.filter(e=>e.id!==tempId);
+    }
+    renderTodayList(); renderOverview(); renderCompanyChips();
     toast.textContent = "⚠"; toast.style.color = "var(--bad)";
   }
 });
@@ -793,11 +842,37 @@ async function sheetsAdd(entry){
   });
   return res.json();
 }
+async function sheetsUpdate(entry){
+  const res = await fetch(SHEETS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action:"update", id:entry.id, workers:entry.workers, technicians:entry.technicians })
+  });
+  return res.json();
+}
 async function sheetsDelete(id){
   const res = await fetch(SHEETS_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ action:"delete", id:id })
+    body: JSON.stringify({ action:"delete", id:id, pin:adminPin })
+  });
+  const data = await res.json();
+  if(data && data.error) throw new Error(data.error);
+  return data;
+}
+async function sheetsChangeCompany(id, company){
+  const res = await fetch(SHEETS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action:"changeCompany", id:id, company:company })
+  });
+  return res.json();
+}
+async function sheetsCheckPin(pin){
+  const res = await fetch(SHEETS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action:"checkPin", pin:pin })
   });
   return res.json();
 }
@@ -829,7 +904,7 @@ async function loadAllEntries(){
         site: r.site,
         company: r.company,
         count: r.count,
-        date: isNaN(d) ? "" : d.toISOString().slice(0,10),
+        date: isNaN(d) ? "" : ymd(d),
         time: isNaN(d) ? "" : d.toTimeString().slice(0,5)
       };
     }).sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time));
@@ -870,7 +945,7 @@ async function loadConfig(){
 
 /* ---------- Today list (check-in tab) ---------- */
 function renderTodayList(){
-  const today = new Date().toISOString().slice(0,10);
+  const today = ymd(new Date());
   const list = document.getElementById("todayList");
   const rows = allEntries.filter(e=>e.date===today && e.site===selectedSite);
   if(!rows.length){ list.innerHTML = `<div class="empty">${t("emptyToday")}</div>`; return; }
@@ -914,13 +989,13 @@ function peopleWord(n){
 }
 
 function renderOverview(){
-  const today = new Date().toISOString().slice(0,10);
+  const today = ymd(new Date());
   const todayRows = allEntries.filter(e=>e.date===today);
   document.getElementById("statToday").textContent = todayRows.reduce((s,e)=>s+e.count,0);
   document.getElementById("statCompanies").textContent = new Set(todayRows.map(e=>e.company)).size;
 
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-6);
-  const cutoffStr = cutoff.toISOString().slice(0,10);
+  const cutoffStr = ymd(cutoff);
   const last7 = allEntries.filter(e=>e.date>=cutoffStr);
   const byDay = {};
   last7.forEach(e=>{ byDay[e.date] = (byDay[e.date]||0) + e.count; });
@@ -956,7 +1031,7 @@ function renderOverview(){
             <div class="right">
               <span class="n">${breakdownText(e)}</span>
               <span class="t">${e.time}</span>
-              <button class="del" onclick="deleteEntry('${e.id}')">✕</button>
+              ${(e.date===today && !String(e.id).startsWith("temp-")) ? `<button class="del" style="color:var(--text-dim)" title="${escapeHtml(t("changeCompany"))}" onclick="changeCompany('${e.id}')">✎</button>` : ""}${(adminPin && !String(e.id).startsWith("temp-")) ? `<button class="del" onclick="deleteEntry('${e.id}')">✕</button>` : ""}
             </div>
           </div>
         `).join("")}
@@ -976,10 +1051,77 @@ async function deleteEntry(id){
   }catch(e){
     console.error("Delete failed", e);
     allEntries = backup;
+    if(e && e.message === "forbidden"){ setAdmin(null); alert(t("forbiddenMsg")); }
     renderTodayList(); renderOverview();
   }
 }
 window.deleteEntry = deleteEntry;
+
+/* ---------- Admin mode (only admin may delete entries) ---------- */
+let adminPin = null;
+try{ adminPin = localStorage.getItem("admin-pin") || null; }catch(e){}
+function setAdmin(pin){
+  adminPin = pin || null;
+  try{ if(adminPin) localStorage.setItem("admin-pin", adminPin); else localStorage.removeItem("admin-pin"); }catch(e){}
+  updateAdminBtn();
+  renderOverview();
+}
+function updateAdminBtn(){
+  const b = document.getElementById("adminBtn");
+  if(b) b.textContent = adminPin ? t("adminOff") : t("adminBtn");
+}
+document.getElementById("adminBtn").addEventListener("click", async ()=>{
+  if(adminPin){ setAdmin(null); return; }
+  const p = prompt(t("adminPinPrompt"));
+  if(!p) return;
+  try{
+    const r = await sheetsCheckPin(p.trim());
+    if(r && r.ok) setAdmin(p.trim()); else alert(t("adminWrong"));
+  }catch(e){ console.error(e); alert("⚠"); }
+});
+
+/* ---------- Change company on an entry (wrong company clicked) ---------- */
+function changeCompany(id){
+  const e = allEntries.find(x=>x.id===id);
+  if(!e) return;
+  const taken = new Set(allEntries.filter(x=>x.date===e.date && x.site===e.site && x.id!==id).map(x=>String(x.company).trim().toLowerCase()));
+  const options = companies.filter(c=>c!==e.company && !taken.has(c.trim().toLowerCase()));
+  if(!options.length){ alert(t("noOtherCompany")); return; }
+
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;";
+  const box = document.createElement("div");
+  box.style.cssText = "background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;width:100%;max-width:340px;color:var(--text);";
+  box.innerHTML = `<div style="font-weight:800;margin-bottom:4px;">${escapeHtml(t("changeTitle"))}</div>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">${escapeHtml(e.company)} · ${breakdownText(e)}</div>
+    <select id="chgSel" style="width:100%;padding:10px;border-radius:10px;font-size:16px;margin-bottom:14px;">${options.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}</select>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button id="chgCancel" style="padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:none;color:var(--text);font-size:15px;">${escapeHtml(t("cancelBtn"))}</button>
+      <button id="chgOk" style="padding:10px 16px;border-radius:10px;border:none;background:var(--amber);color:#fff;font-weight:700;font-size:15px;">${escapeHtml(t("okBtn"))}</button>
+    </div>`;
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+  const close = ()=>{ if(ov.parentNode) ov.parentNode.removeChild(ov); };
+  box.querySelector("#chgCancel").addEventListener("click", close);
+  ov.addEventListener("click", ev=>{ if(ev.target===ov) close(); });
+  box.querySelector("#chgOk").addEventListener("click", async ()=>{
+    const newName = box.querySelector("#chgSel").value;
+    close();
+    const old = e.company;
+    e.company = newName;
+    renderTodayList(); renderOverview(); renderCompanyChips();
+    try{
+      const r = await sheetsChangeCompany(id, newName);
+      if(r && r.error) throw new Error(r.error);
+    }catch(err){
+      console.error("Change company failed", err);
+      e.company = old;
+      renderTodayList(); renderOverview(); renderCompanyChips();
+      if(err && err.message === "duplicate") alert(t("duplicateMsg")); else alert("⚠");
+    }
+  });
+}
+window.changeCompany = changeCompany;
 
 function escapeHtml(str){
   return String(str).replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
@@ -1006,7 +1148,7 @@ function mapRows(rows){
     return {
       id: r.id, site: r.site, company: r.company,
       workers: workers, technicians: technicians, count: workers+technicians,
-      date: isNaN(d) ? "" : d.toISOString().slice(0,10),
+      date: isNaN(d) ? "" : ymd(d),
       time: isNaN(d) ? "" : d.toTimeString().slice(0,5)
     };
   }).sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time));
@@ -1058,7 +1200,7 @@ async function refreshData(showIndicator){
       localStorage.setItem("cache-companies", JSON.stringify(companies));
     }catch(e){}
     renderSiteSelect(); renderCompanyChips(); renderTodayList();
-    renderOverviewFilters(); renderOverview();
+    renderOverviewFilters(); renderOverview(); updateSaveState();
     updateSaveState();
   }catch(e){ console.error("Refresh failed", e); }
   finally{
