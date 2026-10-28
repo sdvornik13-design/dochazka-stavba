@@ -1001,6 +1001,7 @@ document.getElementById("saveBtn").addEventListener("click", async ()=>{
     if(tempId && r && r.id){
       const e = allEntries.find(x=>x.id===tempId);
       if(e) e.id = r.id;
+      renderTodayList(); renderOverview();
     }
   }catch(err){
     console.error("Save failed", err);
